@@ -1,0 +1,61 @@
+:root {
+  --bg: #0e1116;
+  --surface: #171b22;
+  --surface-2: #1f2530;
+  --border: #2b3240;
+  --text: #e6e9ef;
+  --muted: #8a93a6;
+  --accent: #3d8bfd;
+  --accent-text: #ffffff;
+  --ok: #2fb67c;
+  --warn: #e0a526;
+  --danger: #e5484d;
+  --radius: 10px;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
+body {
+  background: var(--bg);
+  color: var(--text);
+  font: 15px/1.5 system-ui, -apple-system, "Segoe UI", "Malgun Gothic", "Apple SD Gothic Neo", sans-serif;
+}
+button, input, select, textarea { font: inherit; color: inherit; }
+a { color: var(--accent); }
+
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  min-height: 36px; padding: 0 14px;
+  background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px;
+  cursor: pointer; white-space: nowrap; text-decoration: none; color: var(--text);
+}
+.btn:hover { border-color: var(--muted); }
+.btn:disabled { opacity: .5; cursor: default; }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
+.btn.danger { color: var(--danger); }
+.btn.sm { min-height: 30px; padding: 0 10px; font-size: 13px; }
+
+.input {
+  width: 100%; min-height: 40px; padding: 8px 12px;
+  background: var(--bg); border: 1px solid var(--border); border-radius: 8px;
+}
+.input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+
+.card {
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+  padding: 20px;
+}
+.muted { color: var(--muted); }
+.error { color: var(--danger); min-height: 1.5em; }
+
+.dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+.dot.ok { background: var(--ok); }
+.dot.bad { background: var(--danger); }
+
+/* 로그인 등 가운데 카드 페이지 */
+.center-page { min-height: 100%; display: grid; place-items: center; padding: 16px; }
+.center-page .card { width: 100%; max-width: 380px; }
+.center-page h1 { margin: 0 0 4px; font-size: 22px; }
+.form-row { margin-top: 14px; }
+.form-row label { display: block; margin-bottom: 4px; font-size: 13px; color: var(--muted); }

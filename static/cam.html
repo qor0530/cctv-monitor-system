@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0e1116">
+<link rel="manifest" href="/static/cam.webmanifest">
+<title>카메라 송출</title>
+<link rel="stylesheet" href="/static/common.css">
+<style>
+  body { padding: 16px; }
+  .wrap { max-width: 520px; margin: 0 auto; display: grid; gap: 12px; }
+  h1 { font-size: 20px; margin: 0; }
+  video { width: 100%; aspect-ratio: 16/9; background: #000; border-radius: var(--radius); object-fit: contain; }
+  .status { font-size: 22px; font-weight: 600; display: flex; align-items: center; gap: 10px; }
+  .status .dot { width: 14px; height: 14px; }
+  dl { display: grid; grid-template-columns: auto 1fr; gap: 4px 16px; margin: 0; }
+  dt { color: var(--muted); }
+  dd { margin: 0; font-variant-numeric: tabular-nums; }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; }
+  .row .btn { flex: 1; min-height: 44px; }
+  #log { font-size: 12px; color: var(--muted); max-height: 120px; overflow: auto; white-space: pre-wrap; margin: 0; }
+  #dim { position: fixed; inset: 0; background: #000; z-index: 10; display: grid; place-items: center;
+         color: #333; font-size: 13px; }
+  #dim[hidden] { display: none; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <section id="setup" class="card" hidden>
+    <h1>카메라 송출 설정</h1>
+    <p class="muted">관리자에게 받은 카메라 키를 입력하거나, 관리자 화면의 QR을 찍어서 들어오세요.</p>
+    <input class="input" id="keyInput" placeholder="cam_..." autocomplete="off" autocapitalize="off" spellcheck="false">
+    <p class="error" id="setupErr"></p>
+    <button class="btn primary" style="width:100%;min-height:44px" id="saveKey">확인</button>
+  </section>
+
+  <section id="ready" hidden>
+    <div class="card" style="display:grid;gap:12px">
+      <h1 id="camName"></h1>
+      <p class="muted" style="margin:0">
+        충전기를 연결하고 휴대폰을 거치한 뒤 시작하세요. 송출 중에는 이 화면을 닫거나 다른 앱으로 넘어가지 마세요.
+      </p>
+      <button class="btn primary" style="min-height:52px;font-size:17px" id="start">송출 시작</button>
+      <p class="error" id="readyErr"></p>
+    </div>
+  </section>
+
+  <section id="run" hidden>
+    <div class="card" style="display:grid;gap:12px">
+      <div class="status"><span class="dot" id="stDot"></span><span id="stText">준비 중</span></div>
+      <video id="video" playsinline muted></video>
+      <dl>
+        <dt>카메라</dt><dd id="rName"></dd>
+        <dt>마지막 전송</dt><dd id="rLast">-</dd>
+        <dt>전송 주기</dt><dd id="rInt">-</dd>
+        <dt>성공 / 실패</dt><dd id="rCount">0 / 0</dd>
+        <dt>화면 꺼짐 방지</dt><dd id="rWake">-</dd>
+        <dt>배터리</dt><dd id="rBat">-</dd>
+      </dl>
+      <div class="row">
+        <button class="btn" id="dimBtn">화면 어둡게</button>
+        <button class="btn danger" id="stop">송출 중지</button>
+      </div>
+      <pre id="log"></pre>
+    </div>
+  </section>
+
+  <p class="muted" style="font-size:12px;text-align:center">
+    <a href="#" id="forget">이 휴대폰의 카메라 키 지우기</a>
+  </p>
+</div>
+
+<div id="dim" hidden>송출 중 · 화면을 누르면 돌아갑니다</div>
+<canvas id="canvas" hidden></canvas>
+
+<script src="/static/cam.js?v=2"></script>
+</body>
+</html>

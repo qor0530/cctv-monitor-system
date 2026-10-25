@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>도로 관제 로그인</title>
+<link rel="stylesheet" href="/static/common.css">
+</head>
+<body>
+<main class="center-page">
+  <form class="card" id="form">
+    <h1>도로 관제</h1>
+    <p class="muted" style="margin:0">사번으로 로그인하세요.</p>
+    <div class="form-row">
+      <label for="u">사번</label>
+      <input class="input" id="u" autocomplete="username" required autofocus>
+    </div>
+    <div class="form-row">
+      <label for="p">비밀번호</label>
+      <input class="input" id="p" type="password" autocomplete="current-password" required>
+    </div>
+    <p class="error" id="err"></p>
+    <button class="btn primary" style="width:100%" id="go">로그인</button>
+    <p class="muted" style="font-size:13px;margin:12px 0 0">처음이라면 비밀번호도 사번입니다.</p>
+  </form>
+</main>
+<script src="/static/common.js"></script>
+<script>
+document.getElementById('form').addEventListener('submit', async e => {
+  e.preventDefault();
+  const err = document.getElementById('err'), go = document.getElementById('go');
+  err.textContent = ''; go.disabled = true;
+  try {
+    const r = await api('/api/login', { method: 'POST', noRedirect: true,
+      body: { username: document.getElementById('u').value, password: document.getElementById('p').value } });
+    location.href = r.must_change ? '/change-password' : '/';
+  } catch (ex) {
+    err.textContent = ex.message; go.disabled = false;
+  }
+});
+</script>
+</body>
+</html>

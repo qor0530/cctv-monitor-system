@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>도로 관제</title>
+<link rel="stylesheet" href="/static/common.css">
+<style>
+  body { display: flex; flex-direction: column; }
+  header {
+    display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+    padding: 10px 16px; border-bottom: 1px solid var(--border); background: var(--surface);
+  }
+  header h1 { font-size: 17px; margin: 0; margin-right: auto; display: flex; align-items: center; gap: 8px; }
+  header .who { color: var(--muted); font-size: 14px; }
+
+  #grid {
+    flex: 1; display: grid; gap: 8px; padding: 8px;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    align-content: start;
+  }
+  @media (max-width: 1100px) { #grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  @media (max-width: 640px)  { #grid { grid-template-columns: 1fr; } }
+
+  .tile {
+    position: relative; aspect-ratio: 16 / 9; background: #000;
+    border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden;
+    cursor: zoom-in; padding: 0; text-align: left;
+  }
+  .tile:focus-visible { outline: 2px solid var(--accent); }
+  .tile img { width: 100%; height: 100%; object-fit: contain; display: block; opacity: 0; transition: opacity .2s; }
+  .tile img.loaded { opacity: 1; }
+  .tile .cap {
+    position: absolute; left: 0; right: 0; bottom: 0; padding: 6px 10px;
+    background: linear-gradient(transparent, rgba(0,0,0,.75));
+    display: flex; align-items: baseline; gap: 8px; font-size: 14px; color: #fff;
+  }
+  .tile .cap .name { font-weight: 600; }
+  .tile .cap .loc { color: #c7cbd4; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tile .cap .age { margin-left: auto; font-size: 12px; color: #c7cbd4; white-space: nowrap; }
+  .tile .badge {
+    position: absolute; top: 8px; left: 8px; padding: 2px 8px; border-radius: 6px;
+    font-size: 12px; background: var(--danger); color: #fff; display: none;
+  }
+  .tile.offline .badge { display: block; }
+  .tile.offline img { filter: grayscale(1) brightness(.6); }
+  .tile .wait {
+    position: absolute; inset: 0; display: grid; place-items: center; color: var(--muted); font-size: 14px;
+  }
+  .tile img.loaded + .wait { display: none; }
+
+  .empty { grid-column: 1 / -1; padding: 60px 16px; text-align: center; color: var(--muted); }
+
+  /* 크게 보기 + 줌 */
+  #ov { position: fixed; inset: 0; background: #000; display: flex; flex-direction: column; z-index: 10; }
+  #ov[hidden] { display: none; }
+  .ov-bar {
+    display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+    padding: 8px 12px; background: rgba(23,27,34,.95); border-bottom: 1px solid var(--border);
+  }
+  .ov-bar .title { font-weight: 600; margin-right: 4px; }
+  .ov-bar .sp { flex: 1; }
+  #zoomLabel { min-width: 48px; text-align: center; font-variant-numeric: tabular-nums; color: var(--muted); }
+  #stage { position: relative; flex: 1; overflow: hidden; touch-action: none; cursor: grab; }
+  #stage:active { cursor: grabbing; }
+  #ovImg { position: absolute; left: 0; top: 0; transform-origin: 0 0; user-select: none; -webkit-user-drag: none; }
+  .hint { position: absolute; bottom: 10px; left: 50%; transform: translateX(-50%);
+    font-size: 12px; color: #aaa; background: rgba(0,0,0,.6); padding: 4px 10px; border-radius: 6px; pointer-events: none; }
+
+  #idle { position: fixed; inset: 0; background: rgba(0,0,0,.8); display: grid; place-items: center; z-index: 20; }
+  #idle[hidden] { display: none; }
+</style>
+</head>
+<body>
+<header>
+  <h1><span class="dot" id="conn"></span>도로 관제</h1>
+  <span class="who" id="who"></span>
+  <a class="btn sm" id="adminLink" href="/admin" hidden>관리자</a>
+  <a class="btn sm" href="/change-password">비밀번호 변경</a>
+  <button class="btn sm" onclick="logout()">로그아웃</button>
+</header>
+
+<main id="grid"></main>
+
+<div id="ov" hidden>
+  <div class="ov-bar">
+    <button class="btn sm" id="prev" aria-label="이전 카메라">◀</button>
+    <span class="title" id="ovTitle"></span>
+    <span class="muted" id="ovAge"></span>
+    <button class="btn sm" id="next" aria-label="다음 카메라">▶</button>
+    <span class="sp"></span>
+    <button class="btn sm" id="zOut" aria-label="축소">－</button>
+    <span id="zoomLabel">100%</span>
+    <button class="btn sm" id="zIn" aria-label="확대">＋</button>
+    <button class="btn sm" id="zReset">원래 크기</button>
+    <button class="btn sm" id="close">닫기 ✕</button>
+  </div>
+  <div id="stage">
+    <img id="ovImg" alt="">
+    <div class="hint" id="hint">휠·두 손가락으로 확대, 드래그로 이동, 더블클릭으로 확대/복원</div>
+  </div>
+</div>
+
+<div id="idle" hidden>
+  <div class="card" style="text-align:center;max-width:320px">
+    <p style="margin-top:0">한동안 조작이 없어 갱신을 멈췄습니다.</p>
+    <button class="btn primary" id="resume">계속 보기</button>
+  </div>
+</div>
+
+<script src="/static/common.js"></script>
+<script src="/static/viewer.js?v=2"></script>
+</body>
+</html>

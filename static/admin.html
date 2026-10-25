@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>관제 관리자</title>
+<link rel="stylesheet" href="/static/common.css">
+<style>
+  header {
+    display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+    padding: 10px 16px; border-bottom: 1px solid var(--border); background: var(--surface);
+  }
+  header h1 { font-size: 17px; margin: 0; margin-right: auto; }
+  nav.tabs { display: flex; gap: 4px; padding: 12px 16px 0; border-bottom: 1px solid var(--border); overflow-x: auto; }
+  nav.tabs button {
+    background: none; border: 0; border-bottom: 2px solid transparent; padding: 8px 14px; cursor: pointer; color: var(--muted);
+  }
+  nav.tabs button[aria-selected="true"] { color: var(--text); border-bottom-color: var(--accent); }
+  main { padding: 16px; max-width: 1200px; margin: 0 auto; display: grid; gap: 16px; }
+  section[hidden] { display: none; }
+  h2 { font-size: 16px; margin: 0 0 12px; }
+
+  .table-wrap { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+  th { color: var(--muted); font-weight: 500; font-size: 13px; }
+  td.actions { display: flex; gap: 6px; }
+  tr.blocked td:not(.actions) { color: var(--muted); text-decoration: line-through; }
+  .pill { font-size: 12px; padding: 1px 8px; border-radius: 999px; border: 1px solid var(--border); }
+  .pill.ok { color: var(--ok); border-color: var(--ok); }
+  .pill.bad { color: var(--danger); border-color: var(--danger); }
+  .pill.warn { color: var(--warn); border-color: var(--warn); }
+
+  .bar { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .bar .input { width: auto; flex: 1; min-width: 160px; }
+
+  dialog {
+    background: var(--surface); color: var(--text); border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 20px; width: min(440px, calc(100vw - 32px));
+  }
+  dialog::backdrop { background: rgba(0,0,0,.6); }
+  #qr { background: #fff; padding: 12px; width: fit-content; margin: 12px auto; border-radius: 8px; }
+  .keybox { word-break: break-all; font-family: ui-monospace, Consolas, monospace; font-size: 13px;
+            background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; }
+  #toast { position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%); background: var(--surface-2);
+           border: 1px solid var(--border); padding: 8px 16px; border-radius: 8px; z-index: 50; }
+  #toast[hidden] { display: none; }
+</style>
+</head>
+<body>
+<header>
+  <h1>관제 관리자</h1>
+  <a class="btn sm" href="/">관제 화면</a>
+  <button class="btn sm" onclick="logout()">로그아웃</button>
+</header>
+<nav class="tabs" role="tablist">
+  <button role="tab" data-tab="cams" aria-selected="true">카메라</button>
+  <button role="tab" data-tab="users" aria-selected="false">계정</button>
+  <button role="tab" data-tab="settings" aria-selected="false">설정</button>
+</nav>
+
+<main>
+  <!-- 카메라 -->
+  <section id="tab-cams" class="card">
+    <div class="bar" style="justify-content:space-between;margin-bottom:12px">
+      <h2 style="margin:0">카메라 <span class="muted" id="camCount"></span></h2>
+      <button class="btn primary" id="addCam">＋ 카메라 추가</button>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>순서</th><th>이름</th><th>위치</th><th>상태</th><th>마지막 수신</th><th>배터리</th><th>주기</th><th></th></tr></thead>
+        <tbody id="camRows"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- 계정 -->
+  <section id="tab-users" hidden>
+    <div class="card">
+      <h2>계정 일괄 생성</h2>
+      <p class="muted" style="margin-top:0">사번을 줄바꿈, 쉼표, 공백으로 구분해 붙여넣으세요. 초기 비밀번호는 사번과 같습니다.</p>
+      <textarea class="input" id="bulk" rows="5" placeholder="20240001&#10;20240002&#10;20240003"></textarea>
+      <div class="bar" style="margin-top:10px">
+        <button class="btn primary" id="bulkGo">계정 만들기</button>
+        <span class="muted" id="bulkResult"></span>
+      </div>
+    </div>
+    <div class="card">
+      <div class="bar" style="margin-bottom:12px">
+        <h2 style="margin:0;margin-right:auto">계정 목록 <span class="muted" id="userCount"></span></h2>
+        <input class="input" id="userSearch" placeholder="사번 검색" style="max-width:240px">
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>사번</th><th>권한</th><th>상태</th><th>비밀번호</th><th>마지막 로그인</th><th></th></tr></thead>
+          <tbody id="userRows"></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- 설정 -->
+  <section id="tab-settings" class="card" hidden>
+    <h2>보안 설정</h2>
+    <label style="display:flex;gap:10px;align-items:flex-start;cursor:pointer">
+      <input type="checkbox" id="forcePw" style="margin-top:4px">
+      <span>첫 로그인 시 비밀번호 변경 강제<br>
+        <span class="muted" style="font-size:13px">끄면 사번만 알면 누구나 그 계정으로 로그인할 수 있습니다. 켜두는 것을 권장합니다.</span></span>
+    </label>
+  </section>
+</main>
+
+<dialog id="camDlg">
+  <form method="dialog" id="camForm">
+    <h2 id="camDlgTitle">카메라 추가</h2>
+    <div class="form-row"><label for="fName">이름</label><input class="input" id="fName" maxlength="40" required placeholder="예: 1번 카메라"></div>
+    <div class="form-row"><label for="fLoc">위치</label><input class="input" id="fLoc" maxlength="100" placeholder="예: 정문 앞 교차로"></div>
+    <div class="form-row"><label for="fInt">갱신 주기 (초, 2~60)</label><input class="input" id="fInt" type="number" min="2" max="60" value="5" required></div>
+    <div class="form-row"><label for="fRot">화면 회전</label>
+      <select class="input" id="fRot">
+        <option value="0">0° (그대로)</option>
+        <option value="90">90° (시계 방향)</option>
+        <option value="180">180° (뒤집기)</option>
+        <option value="270">270° (반시계 방향)</option>
+      </select></div>
+    <div class="form-row"><label for="fSort">표시 순서 (작을수록 앞)</label><input class="input" id="fSort" type="number" value="0"></div>
+    <p class="error" id="camErr"></p>
+    <div class="bar" style="justify-content:flex-end">
+      <button class="btn" value="cancel" formnovalidate>취소</button>
+      <button class="btn primary" id="camSave" value="ok">저장</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="keyDlg">
+  <h2 id="keyTitle">카메라 연결</h2>
+  <p style="margin-top:0">휴대폰 Chrome으로 아래 QR을 찍거나 링크를 열면 송출 화면이 바로 설정됩니다.</p>
+  <div id="qr"></div>
+  <div class="keybox" id="keyUrl"></div>
+  <p class="muted" style="font-size:13px">이 링크는 지금만 볼 수 있습니다. 잃어버리면 "키 재발급"을 누르세요. 재발급하면 이전 휴대폰은 송출이 끊깁니다.</p>
+  <div class="bar" style="justify-content:flex-end">
+    <button class="btn" id="copyKey">링크 복사</button>
+    <button class="btn primary" onclick="document.getElementById('keyDlg').close()">닫기</button>
+  </div>
+</dialog>
+
+<div id="toast" hidden></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<script src="/static/common.js"></script>
+<script src="/static/admin.js?v=2"></script>
+</body>
+</html>

@@ -1,0 +1,9 @@
+{
+  "name": "도로 관제 카메라",
+  "short_name": "관제 카메라",
+  "start_url": "/cam",
+  "display": "fullscreen",
+  "orientation": "landscape",
+  "background_color": "#0e1116",
+  "theme_color": "#0e1116"
+}
