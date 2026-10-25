@@ -4,16 +4,18 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>도로 관제 로그인</title>
-<link rel="stylesheet" href="/static/common.css">
+<meta name="theme-color" content="#0e1116">
+<link rel="stylesheet" href="/static/common.css?v=3">
 </head>
 <body>
 <main class="center-page">
   <form class="card" id="form">
+    <div class="logo"><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7h11l4 3v4l-4 3H3z"/><circle cx="8.5" cy="12" r="2"/><path d="M18 11l3-2v6l-3-2"/></svg></div>
     <h1>도로 관제</h1>
-    <p class="muted" style="margin:0">사번으로 로그인하세요.</p>
+    <p class="muted" style="margin:0">퇴근길 도로 상황을 실시간으로 확인하세요.</p>
     <div class="form-row">
       <label for="u">사번</label>
-      <input class="input" id="u" autocomplete="username" required autofocus>
+      <input class="input" id="u" autocomplete="username" inputmode="text" placeholder="예: 20240001" required autofocus>
     </div>
     <div class="form-row">
       <label for="p">비밀번호</label>
@@ -21,10 +23,11 @@
     </div>
     <p class="error" id="err"></p>
     <button class="btn primary" style="width:100%" id="go">로그인</button>
-    <p class="muted" style="font-size:13px;margin:12px 0 0">처음이라면 비밀번호도 사번입니다.</p>
+    <p class="muted" style="font-size:13px;margin:12px 0 0;text-align:center">처음 로그인한다면 비밀번호도 사번입니다.</p>
+    <p class="foot">사내 직원 전용 · 접속 기록이 남습니다</p>
   </form>
 </main>
-<script src="/static/common.js"></script>
+<script src="/static/common.js?v=3"></script>
 <script>
 document.getElementById('form').addEventListener('submit', async e => {
   e.preventDefault();

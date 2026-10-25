@@ -107,7 +107,7 @@ async function saveNotice(text) {
   await loadAlerts();
 }
 $('postNotice').onclick = () => {
-  if (!$('noticeText').value.trim()) { alert('공지 내용을 입력하세요'); return; }
+  if (!$('noticeText').value.trim()) { toast('공지 내용을 입력하세요', true); $('noticeText').focus(); return; }
   act(() => saveNotice($('noticeText').value), '공지를 게시했습니다. 직원 화면에 몇 초 안에 나타납니다');
 };
 $('clearNotice').onclick = () => act(() => saveNotice(''), '공지를 내렸습니다');

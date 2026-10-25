@@ -5,16 +5,17 @@ let userList = [];
 let skew = 0;
 let editingCam = null;
 
-function toast(msg) {
+function toast(msg, isError = false) {
   const t = $('toast');
   t.textContent = msg; t.hidden = false;
+  t.classList.toggle('error', isError);
   clearTimeout(toast.timer);
-  toast.timer = setTimeout(() => { t.hidden = true; }, 2500);
+  toast.timer = setTimeout(() => { t.hidden = true; }, isError ? 5000 : 2500);
 }
 
 async function act(fn, okMsg) {
   try { await fn(); if (okMsg) toast(okMsg); }
-  catch (e) { alert(e.message); }
+  catch (e) { toast(e.message, true); }
 }
 
 // ---------------------------------------------------------------- 탭
@@ -41,47 +42,67 @@ function renderCams() {
   const now = Date.now() / 1000 + skew;
   $('camCount').textContent = `(${camList.length})`;
   $('camRows').innerHTML = camList.map(c => {
+    // 상태 칸 하나에 온라인 여부 + 이상(충전·배터리)을 모은다
     const problems = Object.entries(c.problems || {}).filter(([code]) => code !== 'offline')
-      .map(([, text]) => ` <span class="pill warn">${esc(text)}</span>`).join('');
+      .map(([, text]) => `<span class="pill warn">${esc(text)}</span>`).join('');
     const st = (!c.enabled ? '<span class="pill">비활성</span>'
       : c.online ? '<span class="pill ok">온라인</span>' : '<span class="pill bad">오프라인</span>') + problems;
-    const bat = c.battery == null ? '-'
-      : `${Math.round(c.battery * 100)}%` + (c.charging ? ' ⚡' : ' <span class="pill warn">충전 안 됨</span>');
+    const bat = c.battery == null ? '<span class="muted">-</span>'
+      : `<span class="bat">${c.charging ? '⚡' : '🔋'} ${Math.round(c.battery * 100)}%</span>`;
+    // 현장에서 각도를 맞출 때 바로 확인할 수 있게 최신 사진을 작게 보여준다
+    const thumb = c.enabled && c.online && c.ts
+      ? `<img src="/api/snap/${c.id}?size=thumb&t=${c.ts}" alt="${esc(c.name)} 최신 화면">`
+      : `<span>${c.enabled ? '신호 없음' : '꺼짐'}</span>`;
     return `<tr>
-      <td>${c.sort}</td>
-      <td>${esc(c.name)}</td>
-      <td>${esc(c.location) || '<span class="muted">-</span>'}</td>
-      <td>${st}</td>
-      <td>${c.ts ? ago(now - c.ts) : '<span class="muted">없음</span>'}</td>
-      <td>${bat}</td>
-      <td>${c.interval}초${c.rotation ? ` · ${c.rotation}°` : ''}</td>
+      <td class="thumb" data-label="">${thumb}</td>
+      <td data-label=""><strong>${esc(c.name)}</strong><div class="muted small">${esc(c.location) || '-'}</div></td>
+      <td data-label=""><div class="pills">${st}</div></td>
+      <td data-label="수신">${c.ts ? ago(now - c.ts) : '<span class="muted">없음</span>'}</td>
+      <td data-label="배터리">${bat}</td>
+      <td data-label="주기">${c.interval}초${c.rotation ? ` · ${c.rotation}°` : ''}</td>
       <td class="actions">
-        <button class="btn sm" data-act="rot" data-id="${c.id}" title="시계 방향으로 90° 회전">↻ 회전</button>
         <button class="btn sm" data-act="edit" data-id="${c.id}">수정</button>
-        <button class="btn sm" data-act="toggle" data-id="${c.id}">${c.enabled ? '비활성화' : '활성화'}</button>
-        <button class="btn sm" data-act="rotate" data-id="${c.id}">키 재발급</button>
-        <button class="btn sm danger" data-act="del" data-id="${c.id}">삭제</button>
+        <button class="btn sm icon" data-act="more" data-id="${c.id}" aria-label="${esc(c.name)} 더보기" aria-haspopup="menu">⋯</button>
       </td></tr>`;
-  }).join('') || '<tr><td colspan="8" class="muted">카메라가 없습니다. "카메라 추가"를 눌러 시작하세요.</td></tr>';
+  }).join('') || '<tr><td colspan="7" class="muted">카메라가 없습니다. "카메라 추가"를 눌러 시작하세요.</td></tr>';
 }
 
-$('camRows').addEventListener('click', e => {
+// "⋯" 메뉴: 표가 5초마다 다시 그려져도 닫히지 않게 표 밖에 하나만 둔다
+function openCamMenu(btn, c) {
+  const m = $('camMenu');
+  m.dataset.id = c.id;
+  $('camMenuToggle').textContent = c.enabled ? '⏸ 비활성화 (송출 중단)' : '▶ 활성화';
+  m.hidden = false;
+  const r = btn.getBoundingClientRect();
+  const top = r.bottom + 6 + m.offsetHeight > innerHeight ? r.top - m.offsetHeight - 6 : r.bottom + 6;
+  m.style.top = `${Math.max(8, top)}px`;
+  m.style.left = `${Math.max(8, Math.min(innerWidth - m.offsetWidth - 8, r.right - m.offsetWidth))}px`;
+}
+document.addEventListener('click', e => {
+  if (!$('camMenu').hidden && !e.target.closest('#camMenu, [data-act=more]')) $('camMenu').hidden = true;
+});
+addEventListener('scroll', () => { $('camMenu').hidden = true; }, true);
+
+$('camMenu').addEventListener('click', async e => {
   const b = e.target.closest('button[data-act]');
   if (!b) return;
-  const c = camList.find(c => c.id === Number(b.dataset.id));
+  $('camMenu').hidden = true;
+  const c = camList.find(c => c.id === Number($('camMenu').dataset.id));
   if (!c) return;
-  if (b.dataset.act === 'edit') openCamDlg(c);
   if (b.dataset.act === 'rot') act(async () => {
     const rotation = (c.rotation + 90) % 360;
     await api(`/api/admin/cameras/${c.id}`, { method: 'PATCH', body: { rotation } });
     await loadCams();
   }, `회전 ${(c.rotation + 90) % 360}° · 다음 사진부터 적용됩니다`);
-  if (b.dataset.act === 'toggle') act(async () => {
-    await api(`/api/admin/cameras/${c.id}`, { method: 'PATCH', body: { enabled: !c.enabled } });
-    await loadCams();
-  }, c.enabled ? '비활성화했습니다. 송출이 중단됩니다' : '활성화했습니다');
+  if (b.dataset.act === 'toggle') {
+    if (c.enabled && !(await uiConfirm(`"${c.name}"을(를) 비활성화할까요?\n휴대폰 송출이 중단되고 직원 화면에서 사라집니다.`, { ok: '비활성화' }))) return;
+    act(async () => {
+      await api(`/api/admin/cameras/${c.id}`, { method: 'PATCH', body: { enabled: !c.enabled } });
+      await loadCams();
+    }, c.enabled ? '비활성화했습니다' : '활성화했습니다');
+  }
   if (b.dataset.act === 'rotate') {
-    if (!confirm(`"${c.name}" 키를 재발급할까요? 지금 연결된 휴대폰은 송출이 끊깁니다.`)) return;
+    if (!(await uiConfirm(`"${c.name}" 키를 재발급할까요?\n지금 연결된 휴대폰은 송출이 끊기고, 새 QR로 다시 연결해야 합니다.`, { ok: '재발급' }))) return;
     act(async () => {
       const d = await api(`/api/admin/cameras/${c.id}/rotate-key`, { method: 'POST' });
       showKey(c.name, d.key);
@@ -89,8 +110,21 @@ $('camRows').addEventListener('click', e => {
     });
   }
   if (b.dataset.act === 'del') {
-    if (!confirm(`"${c.name}" 카메라를 삭제할까요?`)) return;
+    if (!(await uiConfirm(`"${c.name}" 카메라를 삭제할까요?\n되돌릴 수 없습니다.`, { ok: '삭제', danger: true }))) return;
     act(async () => { await api(`/api/admin/cameras/${c.id}`, { method: 'DELETE' }); await loadCams(); }, '삭제했습니다');
+  }
+});
+
+$('camRows').addEventListener('click', e => {
+  const b = e.target.closest('button[data-act]');
+  if (!b) return;
+  const c = camList.find(c => c.id === Number(b.dataset.id));
+  if (!c) return;
+  if (b.dataset.act === 'edit') openCamDlg(c);
+  if (b.dataset.act === 'more') {
+    e.stopPropagation();
+    if (!$('camMenu').hidden && $('camMenu').dataset.id === String(c.id)) $('camMenu').hidden = true;
+    else openCamMenu(b, c);
   }
 });
 
@@ -136,7 +170,7 @@ function showKey(name, key) {
   $('qr').innerHTML = '';
   if (window.QRCode) new QRCode($('qr'), { text: url, width: 220, height: 220 });
   else $('qr').hidden = true;
-  $('copyKey').onclick = () => navigator.clipboard.writeText(url).then(() => toast('복사했습니다'), () => alert(url));
+  $('copyKey').onclick = () => navigator.clipboard.writeText(url).then(() => toast('복사했습니다'), () => toast('복사하지 못했습니다. 링크를 길게 눌러 직접 복사하세요', true));
   $('keyDlg').showModal();
 }
 
@@ -173,7 +207,7 @@ function renderUsers() {
 
 $('userSearch').addEventListener('input', renderUsers);
 
-$('userRows').addEventListener('click', e => {
+$('userRows').addEventListener('click', async e => {
   const b = e.target.closest('button[data-act]');
   if (!b) return;
   const u = userList.find(u => u.id === Number(b.dataset.id));
@@ -184,19 +218,19 @@ $('userRows').addEventListener('click', e => {
     await reload();
   }, u.blocked ? '차단을 해제했습니다' : '차단했습니다. 즉시 로그아웃됩니다');
   if (b.dataset.act === 'reset') {
-    if (!confirm(`${u.username}의 비밀번호를 사번으로 초기화할까요?`)) return;
+    if (!(await uiConfirm(`${u.username}의 비밀번호를 사번으로 초기화할까요?\n지금 로그인된 기기에서는 로그아웃됩니다.`, { ok: '초기화' }))) return;
     act(async () => { await api(`/api/admin/users/${u.id}/reset-password`, { method: 'POST' }); await reload(); },
       '비밀번호를 사번으로 초기화했습니다');
   }
   if (b.dataset.act === 'admin') {
-    if (!confirm(u.is_admin ? `${u.username}의 관리자 권한을 해제할까요?` : `${u.username}을(를) 관리자로 지정할까요?`)) return;
+    if (!(await uiConfirm(u.is_admin ? `${u.username}의 관리자 권한을 해제할까요?` : `${u.username}을(를) 관리자로 지정할까요?`))) return;
     act(async () => {
       await api(`/api/admin/users/${u.id}`, { method: 'PATCH', body: { is_admin: !u.is_admin } });
       await reload();
     });
   }
   if (b.dataset.act === 'del') {
-    if (!confirm(`${u.username} 계정을 삭제할까요?`)) return;
+    if (!(await uiConfirm(`${u.username} 계정을 삭제할까요?\n되돌릴 수 없습니다.`, { ok: '삭제', danger: true }))) return;
     act(async () => { await api(`/api/admin/users/${u.id}`, { method: 'DELETE' }); await reload(); }, '삭제했습니다');
   }
 });
@@ -234,5 +268,5 @@ $('forcePw').addEventListener('change', e => act(
   '저장했습니다'));
 
 // ---------------------------------------------------------------- 시작
-loadCams().catch(e => alert(e.message));
+loadCams().catch(e => toast(e.message, true));
 setInterval(() => { if (!document.hidden && !$('tab-cams').hidden) loadCams().catch(() => {}); }, 5000);

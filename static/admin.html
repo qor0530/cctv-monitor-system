@@ -4,13 +4,14 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>관제 관리자</title>
-<link rel="stylesheet" href="/static/common.css">
+<link rel="stylesheet" href="/static/common.css?v=3">
 <style>
   header {
     display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
     padding: 10px 16px; border-bottom: 1px solid var(--border); background: var(--surface);
   }
-  header h1 { font-size: 17px; margin: 0; margin-right: auto; }
+  header h1 { font-size: 17px; margin: 0; margin-right: auto; display: flex; align-items: center; gap: 8px; }
+  header h1 svg { color: var(--accent); }
   nav.tabs { display: flex; gap: 4px; padding: 12px 16px 0; border-bottom: 1px solid var(--border); overflow-x: auto; }
   nav.tabs button {
     background: none; border: 0; border-bottom: 2px solid transparent; padding: 8px 14px; cursor: pointer; color: var(--muted);
@@ -24,7 +25,8 @@
   table { width: 100%; border-collapse: collapse; font-size: 14px; }
   th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--border); white-space: nowrap; }
   th { color: var(--muted); font-weight: 500; font-size: 13px; }
-  td.actions { display: flex; gap: 6px; }
+  td.actions { white-space: nowrap; text-align: right; }
+  td.actions .btn + .btn { margin-left: 6px; }
   tr.blocked td:not(.actions) { color: var(--muted); text-decoration: line-through; }
   .pill { font-size: 12px; padding: 1px 8px; border-radius: 999px; border: 1px solid var(--border); }
   .pill.ok { color: var(--ok); border-color: var(--ok); }
@@ -45,6 +47,40 @@
   #toast { position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%); background: var(--surface-2);
            border: 1px solid var(--border); padding: 8px 16px; border-radius: 8px; z-index: 50; }
   #toast[hidden] { display: none; }
+  #toast.error { border-color: var(--danger); color: #ffb3b5; }
+
+  /* 카메라 표 */
+  .pills { display: flex; gap: 4px; flex-wrap: wrap; }
+  .small { font-size: 12px; }
+  td.thumb { width: 112px; }
+  td.thumb img, td.thumb span { display: grid; place-items: center; width: 112px; aspect-ratio: 16 / 9; border-radius: 6px;
+                                background: #000; object-fit: cover; color: var(--muted); font-size: 12px; }
+  #camTable td { vertical-align: middle; }
+  .bat { white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .btn.icon { width: 32px; padding: 0; font-size: 16px; letter-spacing: 1px; }
+  .pop { position: fixed; z-index: 60; min-width: 180px; background: var(--surface-2); border: 1px solid var(--border);
+         border-radius: 12px; padding: 6px; box-shadow: 0 12px 32px rgba(0, 0, 0, .45); }
+  .pop button { display: block; width: 100%; text-align: left; padding: 9px 10px; border-radius: 8px; background: none;
+                border: 0; color: var(--text); cursor: pointer; font-size: 14px; }
+  .pop button:hover { background: var(--surface); }
+  .pop button.danger { color: var(--danger); }
+  .pop hr { border: 0; border-top: 1px solid var(--border); margin: 4px 0; }
+
+  @media (max-width: 720px) {
+    main { padding: 12px; }
+    .card { padding: 16px; }
+    /* 휴대폰: 카메라 표를 카드로 */
+    #camTable thead { display: none; }
+    #camTable, #camTable tbody { display: block; }
+    #camTable tr { display: grid; grid-template-columns: 112px 1fr; gap: 4px 12px; padding: 12px 0;
+                   border-bottom: 1px solid var(--border); align-items: start; }
+    #camTable td { display: block; border: 0; padding: 0; white-space: normal; }
+    #camTable td.thumb { grid-row: span 5; }
+    #camTable td[data-label]:not([data-label=""])::before { content: attr(data-label); color: var(--muted);
+                                                           font-size: 12px; margin-right: 6px; }
+    #camTable td.actions { grid-column: 1 / -1; justify-content: flex-end; margin-top: 6px; }
+    #camTable td[colspan] { grid-column: 1 / -1; }
+  }
 
   /* 이상 알림 막대 */
   #alertBar { position: sticky; top: 0; z-index: 20; background: #3a1416; border-bottom: 1px solid var(--danger);
@@ -89,7 +125,7 @@
 </head>
 <body>
 <header>
-  <h1>관제 관리자</h1>
+  <h1><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7h11l4 3v4l-4 3H3z"/><circle cx="8.5" cy="12" r="2"/><path d="M18 11l3-2v6l-3-2"/></svg>관제 관리자</h1>
   <a class="btn sm" href="/">관제 화면</a>
   <button class="btn sm" onclick="logout()">로그아웃</button>
 </header>
@@ -110,8 +146,8 @@
       <button class="btn primary" id="addCam">＋ 카메라 추가</button>
     </div>
     <div class="table-wrap">
-      <table>
-        <thead><tr><th>순서</th><th>이름</th><th>위치</th><th>상태</th><th>마지막 수신</th><th>배터리</th><th>주기</th><th></th></tr></thead>
+      <table id="camTable">
+        <thead><tr><th>화면</th><th>이름 · 위치</th><th>상태</th><th>마지막 수신</th><th>배터리</th><th>주기</th><th></th></tr></thead>
         <tbody id="camRows"></tbody>
       </table>
     </div>
@@ -268,10 +304,17 @@
 </dialog>
 
 <div id="toast" hidden></div>
+<div class="pop" id="camMenu" role="menu" hidden>
+  <button data-act="rot" role="menuitem">↻ 시계 방향 90° 회전</button>
+  <button data-act="toggle" role="menuitem" id="camMenuToggle">비활성화</button>
+  <button data-act="rotate" role="menuitem">🔑 키 재발급 (QR 다시 받기)</button>
+  <hr>
+  <button data-act="del" role="menuitem" class="danger">삭제</button>
+</div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
-<script src="/static/common.js"></script>
-<script src="/static/admin.js?v=3"></script>
-<script src="/static/admin-ops.js?v=1"></script>
+<script src="/static/common.js?v=3"></script>
+<script src="/static/admin.js?v=4"></script>
+<script src="/static/admin-ops.js?v=2"></script>
 </body>
 </html>

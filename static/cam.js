@@ -38,8 +38,9 @@ function log(msg) {
   el.textContent = (line + '\n' + el.textContent).slice(0, 3000);
 }
 
+// kind: ok(송출 중) / wait(대기) / bad(문제) / ''(준비)
 function setStatus(kind, text) {
-  $('stDot').className = 'dot ' + (kind === 'ok' ? 'ok' : kind === 'bad' ? 'bad' : '');
+  $('status').dataset.kind = kind;
   $('stText').textContent = text;
 }
 
@@ -71,6 +72,7 @@ function applyCfg(d) {
   const active = d.active !== false;
   if (active !== camActive && running) log(active ? '운영 시간 시작: 송출을 재개합니다' : '운영 시간 종료: 대기합니다');
   camName = d.name;
+  $('rName').textContent = camName;
   intervalSec = d.interval;
   rotation = d.rotation || 0;
   camActive = active;
@@ -94,9 +96,9 @@ $('saveKey').onclick = async () => {
   }
 };
 
-$('forget').onclick = e => {
+$('forget').onclick = async e => {
   e.preventDefault();
-  if (!confirm('이 휴대폰에 저장된 카메라 키를 지울까요?')) return;
+  if (!(await uiConfirm('이 휴대폰의 카메라 연결을 해제할까요?\n다시 송출하려면 QR을 새로 찍어야 합니다.', { ok: '해제', danger: true }))) return;
   stopRun();
   store.del(KEY_LS);
   key = null;
@@ -214,7 +216,7 @@ async function loop() {
     }
     lastOk = Date.now();
     if (!camActive) {
-      setStatus('', '운영 시간 대기 중');
+      setStatus('wait', '운영 시간 대기 중');
       $('rLast').textContent = pauseMsg || '-';
       waitMs = PAUSED_CHECK_MS;
     }
@@ -263,6 +265,7 @@ async function startRun() {
 
 function stopRun(clearFlag = true) {
   running = false;
+  document.body.classList.remove('aiming');
   clearTimeout(loopTimer);
   if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; }
   if (wakeLock) { wakeLock.release().catch(() => {}); wakeLock = null; }
@@ -270,13 +273,25 @@ function stopRun(clearFlag = true) {
 }
 
 $('start').onclick = startRun;
-$('stop').onclick = () => {
-  if (!confirm('송출을 중지할까요?')) return;
+$('stop').onclick = async () => {
+  if (!(await uiConfirm('송출을 중지할까요?\n직원 화면에서 이 카메라가 "연결 안 됨"으로 바뀝니다.', { ok: '중지', danger: true }))) return;
   stopRun();
   log('송출 중지');
   show('ready');
 };
 $('dimBtn').onclick = () => { $('dim').hidden = false; };
+// 화각 맞추기: 미리보기를 전체 화면으로 키우고 3분할 안내선을 보여준다.
+// 안내선은 화면 전체가 아니라 실제 사진이 보이는 영역에 맞춘다.
+function fitGuide() {
+  const v = $('video'), box = document.querySelector('.preview'), g = document.querySelector('.guide');
+  const vw = v.videoWidth || 16, vh = v.videoHeight || 9;
+  const W = box.clientWidth, H = box.clientHeight, k = Math.min(W / vw, H / vh);
+  Object.assign(g.style, { width: `${vw * k}px`, height: `${vh * k}px`,
+                           left: `${(W - vw * k) / 2}px`, top: `${(H - vh * k) / 2}px` });
+}
+$('aimBtn').onclick = () => { document.body.classList.add('aiming'); fitGuide(); };
+$('aimDone').onclick = () => document.body.classList.remove('aiming');
+addEventListener('resize', () => { if (document.body.classList.contains('aiming')) fitGuide(); });
 $('dim').onclick = () => { $('dim').hidden = true; };
 
 // ---------------------------------------------------------------- 시작
