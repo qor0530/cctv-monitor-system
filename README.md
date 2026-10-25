@@ -28,13 +28,30 @@
 | `loadtest/` | 시청자 500명 부하 시험 도구 |
 
 ## 로컬 실행
+처음 실행하면 가상환경을 만들고 패키지를 설치한 뒤 서버를 켠다. 두 번째부터는 바로 켜진다.
+
+**macOS / Linux**
 ```bash
-python -m venv .venv
-.venv/Scripts/python -m pip install -r requirements.txt
-.venv/Scripts/python -m uvicorn app.main:app --host 127.0.0.1 --port 8000
+git clone https://github.com/qor0530/cctv-monitor-system.git
+cd cctv-monitor-system
+./run.sh
 ```
-처음 실행하면 콘솔에 초기 관리자 계정(`admin`)과 임시 비밀번호가 찍힌다. 첫 로그인 때 비밀번호를 바꿔야 한다.
-휴대폰 카메라는 HTTPS에서만 켜지므로, 실폰 시험은 `cloudflared tunnel --url http://localhost:8000` 같은 임시 터널을 쓴다.
+- Python 3.10 이상이 필요하다. 맥 기본 `python3`가 3.9 이하면 `brew install python@3.12` (Homebrew: https://brew.sh)
+- 비공개 저장소라 처음 clone할 때 GitHub 로그인이 필요하다: `brew install gh` → `gh auth login`
+
+**Windows (PowerShell)**
+```powershell
+cd cctv
+.\run.ps1
+```
+스크립트 실행이 막혀 있으면 `powershell -ExecutionPolicy Bypass -File .\run.ps1`
+
+브라우저에서 http://localhost:8000 접속. 처음 실행하면 콘솔에 초기 관리자 계정(`admin`)과 임시 비밀번호가 찍힌다.
+처음부터 비밀번호를 정하려면 `CCTV_ADMIN_PASSWORD='원하는비번' ./run.sh` (PowerShell: `$env:CCTV_ADMIN_PASSWORD='원하는비번'; .\run.ps1`).
+
+- 계정·카메라 데이터(`cctv.db`)는 **컴퓨터마다 따로** 생긴다. 다른 PC에서 쓰던 계정은 따라오지 않는다
+- 휴대폰 카메라는 HTTPS에서만 켜지므로, 실폰 시험은 다른 터미널에서 임시 터널을 연다:
+  `cloudflared tunnel --url http://localhost:8000` (맥 설치: `brew install cloudflared`, 윈도우: `winget install Cloudflare.cloudflared`)
 
 | 환경변수 | 기본값 | 설명 |
 |---|---|---|
