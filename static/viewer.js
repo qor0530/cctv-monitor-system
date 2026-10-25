@@ -9,6 +9,8 @@ let skew = 0;            // 서버 시각 - 내 시각 (초)
 let pollTimer = null;
 let lastActivity = Date.now();
 let paused = false;
+let operatingNow = true;
+let lastBanners = '';
 
 const snapUrl = (c, thumb) => `/api/snap/${c.id}?${thumb ? 'size=thumb&' : ''}t=${c.ts}`;
 const nowSec = () => Date.now() / 1000 + skew;
@@ -45,10 +47,26 @@ function render(list) {
     t.loc.textContent = c.location;
     t.el.classList.toggle('offline', !c.online);
     if (c.ts && c.ts !== t.ts) { t.ts = c.ts; swapImg(t.img, snapUrl(c, true)); }
+    if (!c.ts && t.ts) { t.ts = null; t.img.removeAttribute('src'); t.img.classList.remove('loaded'); }
+    t.el.querySelector('.wait').textContent = operatingNow ? '신호 대기 중' : '운영 시간 아님';
   }
   if (!list.length) grid.insertAdjacentHTML('beforeend', '<p class="empty">등록된 카메라가 없습니다.</p>');
   updateAges();
   if (ovId != null) syncOverlay();
+}
+
+// 공지와 운영 시간 안내
+function renderBanners(d) {
+  let html = '';
+  if (d.notice && d.notice.text) {
+    const warn = d.notice.level === 'warn';
+    html += `<div class="banner ${warn ? 'warn' : 'info'}" role="status">
+      <strong>${warn ? '⚠ 주의' : '📢 공지'}</strong><span>${esc(d.notice.text)}</span></div>`;
+  }
+  if (d.operating && !d.operating.active) {
+    html += `<div class="banner off"><strong>⏸</strong><span>${esc(d.operating.message)}</span></div>`;
+  }
+  if (html !== lastBanners) { document.getElementById('banners').innerHTML = html; lastBanners = html; }
 }
 
 function updateAges() {
@@ -67,6 +85,8 @@ async function refresh() {
   try {
     const d = await api('/api/cameras');
     skew = d.now - Date.now() / 1000;
+    operatingNow = !d.operating || d.operating.active;
+    renderBanners(d);
     render(d.cameras);
     document.getElementById('conn').className = 'dot ok';
   } catch (e) {

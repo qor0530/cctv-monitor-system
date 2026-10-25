@@ -16,6 +16,9 @@ let key = null;
 let camName = '';
 let intervalSec = 5;
 let rotation = 0; // 관리자가 정한 회전 각도 (0/90/180/270)
+let camActive = true; // 운영 시간 안인지 (서버가 알려준다)
+let pauseMsg = '';
+const PAUSED_CHECK_MS = 30000;
 let stream = null;
 let wakeLock = null;
 let running = false;
@@ -61,12 +64,22 @@ function keyFromHash() {
   return m[1];
 }
 
+// 서버 응답(설정/업로드)에 담긴 값을 반영한다
+function applyCfg(d) {
+  if ((d.rotation || 0) !== rotation && running) log(`회전 변경: ${d.rotation || 0}°`);
+  if (d.interval !== intervalSec && running) log(`전송 주기 변경: ${d.interval}초`);
+  const active = d.active !== false;
+  if (active !== camActive && running) log(active ? '운영 시간 시작: 송출을 재개합니다' : '운영 시간 종료: 대기합니다');
+  camName = d.name;
+  intervalSec = d.interval;
+  rotation = d.rotation || 0;
+  camActive = active;
+  pauseMsg = d.message || '';
+}
+
 async function checkKey(k) {
   key = k;
-  const cfg = await camFetch('/api/cam/config');
-  camName = cfg.name;
-  intervalSec = cfg.interval;
-  rotation = cfg.rotation || 0;
+  applyCfg(await camFetch('/api/cam/config'));
   store.set(KEY_LS, k);
   $('camName').textContent = camName;
 }
@@ -178,11 +191,7 @@ async function sendOnce() {
   const to = setTimeout(() => ctrl.abort(), UPLOAD_TIMEOUT_MS);
   try {
     const d = await camFetch('/api/cam/upload', { method: 'POST', body: blob, headers, signal: ctrl.signal });
-    if (d.interval !== intervalSec) log(`전송 주기 변경: ${d.interval}초`);
-    intervalSec = d.interval;
-    if ((d.rotation || 0) !== rotation) log(`회전 변경: ${d.rotation || 0}°`);
-    rotation = d.rotation || 0;
-    camName = d.name;
+    applyCfg(d);
     return blob.size;
   } finally {
     clearTimeout(to);
@@ -191,12 +200,24 @@ async function sendOnce() {
 
 async function loop() {
   if (!running) return;
+  let waitMs = null;
   try {
-    const size = await sendOnce();
-    okCount++;
+    // 운영 시간 밖이면 사진을 찍지 않고 30초마다 상태만 확인한다
+    if (!camActive) applyCfg(await camFetch('/api/cam/config'));
+    if (camActive) {
+      const size = await sendOnce();
+      if (camActive) {
+        okCount++;
+        setStatus('ok', '송출 중');
+        $('rLast').textContent = `${new Date().toLocaleTimeString()} (${Math.round(size / 1024)}KB)`;
+      }
+    }
     lastOk = Date.now();
-    setStatus('ok', '송출 중');
-    $('rLast').textContent = `${new Date().toLocaleTimeString()} (${Math.round(size / 1024)}KB)`;
+    if (!camActive) {
+      setStatus('', '운영 시간 대기 중');
+      $('rLast').textContent = pauseMsg || '-';
+      waitMs = PAUSED_CHECK_MS;
+    }
   } catch (e) {
     failCount++;
     if (e.status === 401 || e.status === 403) {
@@ -216,7 +237,7 @@ async function loop() {
   $('rCount').textContent = `${okCount} / ${failCount}`;
   $('rInt').textContent = `${intervalSec}초` + (rotation ? ` · 회전 ${rotation}°` : '');
   $('rName').textContent = camName;
-  loopTimer = setTimeout(loop, intervalSec * 1000);
+  loopTimer = setTimeout(loop, waitMs ?? intervalSec * 1000);
 }
 
 async function startRun() {

@@ -36,6 +36,16 @@ cp -r "$SRC/app" "$SRC/static" "$SRC/requirements.txt" "$APP/"
 "$APP/.venv/bin/pip" install -q -r "$APP/requirements.txt"
 chown -R cctv:cctv "$DATA"
 
+if [ ! -f /etc/cctv.env ]; then
+  cat > /etc/cctv.env <<'ENVEOF'
+# 관제 서버 선택 설정. 바꾼 뒤: systemctl restart cctv
+# 텔레그램 알림 (README의 "텔레그램 알림 켜기" 참고)
+#CCTV_TELEGRAM_TOKEN=123456:ABC...
+#CCTV_TELEGRAM_CHAT_ID=-100123456789
+ENVEOF
+  chmod 600 /etc/cctv.env
+fi
+
 echo "== 서비스 등록"
 cp "$SRC/deploy/cctv.service" /etc/systemd/system/cctv.service
 sed "s/__DOMAIN__/$DOMAIN/" "$SRC/deploy/Caddyfile" > /etc/caddy/Caddyfile

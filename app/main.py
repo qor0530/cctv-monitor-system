@@ -1,12 +1,15 @@
 """이동형 도로 관제 서버 — 휴대폰이 올린 스냅샷을 로그인한 사용자에게 보여준다."""
+import asyncio
 import hashlib
 import hmac
+import json
 import os
 import re
 import secrets
 import sqlite3
 import threading
 import time
+from contextlib import asynccontextmanager
 from io import BytesIO
 from pathlib import Path
 
@@ -16,6 +19,8 @@ from fastapi.staticfiles import StaticFiles
 from PIL import Image
 from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
+
+from . import ops
 
 ROOT = Path(__file__).resolve().parent.parent
 STATIC = ROOT / "static"
@@ -61,6 +66,18 @@ CREATE TABLE IF NOT EXISTS cameras(
   sort INTEGER NOT NULL DEFAULT 0,
   created_at REAL NOT NULL);
 CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY, value TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS events(
+  id INTEGER PRIMARY KEY,
+  ts REAL NOT NULL,
+  kind TEXT NOT NULL,
+  cam_id INTEGER,
+  message TEXT NOT NULL);
+CREATE INDEX IF NOT EXISTS events_ts ON events(ts);
+CREATE TABLE IF NOT EXISTS stats_minute(ts INTEGER PRIMARY KEY, viewers INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS daily_users(day TEXT NOT NULL, user_id INTEGER NOT NULL, PRIMARY KEY(day, user_id));
+CREATE TABLE IF NOT EXISTS cam_views(
+  day TEXT NOT NULL, cam_id INTEGER NOT NULL, user_id INTEGER NOT NULL,
+  PRIMARY KEY(day, cam_id, user_id));
 """)
 if "rotation" not in [r[1] for r in _db.execute("PRAGMA table_info(cameras)")]:
     _db.execute("ALTER TABLE cameras ADD COLUMN rotation INTEGER NOT NULL DEFAULT 0")
@@ -110,6 +127,28 @@ def set_setting(key, value):
 
 
 _force_pw_change = get_setting("force_pw_change", "1") == "1"
+
+
+def _json_setting(key, default):
+    try:
+        return json.loads(get_setting(key, ""))
+    except ValueError:
+        return default
+
+
+try:
+    _schedule = ops.validate_schedule(_json_setting("schedule", ops.DEFAULT_SCHEDULE))
+except ValueError:
+    _schedule = dict(ops.DEFAULT_SCHEDULE)
+_notice = _json_setting("notice", {"text": "", "level": "info", "updated_at": None})
+
+
+def operating():
+    return ops.operating_status(_schedule)
+
+
+def log_event(kind, message, cam_id=None):
+    x("INSERT INTO events(ts,kind,cam_id,message) VALUES(?,?,?,?)", (time.time(), kind, cam_id, message))
 
 
 def bootstrap_admin():
@@ -241,9 +280,123 @@ def new_camera_key():
     return "cam_" + secrets.token_urlsafe(18)
 
 
+def live_problems(r):
+    """운영 중일 때 카메라의 현재 이상 상태."""
+    if not operating()["active"]:
+        return {}
+    s = _snaps.get(r["id"]) or {}
+    return ops.camera_problems(cam_status(r)["online"], s.get("battery"), s.get("charging"))
+
+
+# ---------------------------------------------------------------- 접속 통계
+
+PRESENCE_SEC = 15  # 시청 화면은 3초마다 목록을 부르므로, 15초 안에 부른 사람을 "접속 중"으로 본다
+_last_seen: dict[int, float] = {}
+_seen_today: set[tuple[str, int]] = set()
+_viewed_today: set[tuple[str, int, int]] = set()
+
+
+def note_viewer(user_id):
+    now = time.time()
+    _last_seen[user_id] = now
+    key = (ops.kst_day(now), user_id)
+    if key not in _seen_today:
+        _seen_today.add(key)
+        x("INSERT OR IGNORE INTO daily_users(day,user_id) VALUES(?,?)", key)
+
+
+def note_view(cam_id, user_id):
+    key = (ops.kst_day(), cam_id, user_id)
+    if key not in _viewed_today:
+        _viewed_today.add(key)
+        x("INSERT OR IGNORE INTO cam_views(day,cam_id,user_id) VALUES(?,?,?)", key)
+
+
+def current_viewers():
+    now = time.time()
+    return sum(1 for t in _last_seen.values() if now - t < PRESENCE_SEC)
+
+
+def record_minute():
+    now = time.time()
+    x("INSERT OR REPLACE INTO stats_minute(ts,viewers) VALUES(?,?)", (int(now // 60 * 60), current_viewers()))
+    x("DELETE FROM stats_minute WHERE ts < ?", (now - 31 * 86400,))
+    x("DELETE FROM events WHERE ts < ?", (now - 90 * 86400,))
+    today = ops.kst_day(now)
+    for uid, t in list(_last_seen.items()):
+        if now - t > 3600:
+            _last_seen.pop(uid, None)
+    _seen_today.difference_update({k for k in _seen_today if k[0] != today})
+    _viewed_today.difference_update({k for k in _viewed_today if k[0] != today})
+
+
+# ---------------------------------------------------------------- 카메라 이상 알림
+
+ALERT_GRACE = int(os.environ.get("CCTV_ALERT_GRACE", "120"))  # 운영 시작 직후 휴대폰을 켜는 동안은 알리지 않는다
+_alerts: dict[int, dict[str, str]] = {}      # cam_id -> {코드: 설명}
+_alert_since: dict[tuple[int, str], float] = {}
+_op_state = {"active": None, "since": time.time()}
+
+
+def check_alerts():
+    now = time.time()
+    op = operating()
+    msgs = []
+    if op["active"] != _op_state["active"]:
+        if _op_state["active"] is not None:
+            text = "운영 시작" if op["active"] else "운영 종료"
+            log_event("operating", text)
+            msgs.append(("▶️ " if op["active"] else "⏹️ ") + text)
+        _op_state.update(active=op["active"], since=now)
+    if not op["active"] or now - _op_state["since"] < ALERT_GRACE:
+        _alerts.clear()
+        _alert_since.clear()
+    else:
+        rows = q("SELECT * FROM cameras WHERE enabled=1")
+        names = {r["id"]: r["name"] for r in rows}
+        current = {r["id"]: p for r in rows if (p := live_problems(r))}
+        for cid, probs in current.items():
+            for code, text in probs.items():
+                if code not in _alerts.get(cid, {}):
+                    _alert_since[(cid, code)] = now
+                    log_event("alert", f"{names[cid]}: {text}", cid)
+                    msgs.append(f"⚠️ {names[cid]}: {text}")
+        for cid, probs in _alerts.items():
+            for code, text in probs.items():
+                if code not in current.get(cid, {}):
+                    _alert_since.pop((cid, code), None)
+                    if cid in names:
+                        log_event("recover", f"{names[cid]}: {text} → 정상", cid)
+                        msgs.append(f"✅ {names[cid]}: {text} 해결")
+        _alerts.clear()
+        _alerts.update(current)
+    if msgs:
+        ops.send_telegram("[도로 관제]\n" + "\n".join(msgs))
+
+
+async def background():
+    last_minute = 0.0
+    while True:
+        try:
+            await asyncio.to_thread(check_alerts)
+            if time.time() - last_minute >= 60:
+                last_minute = time.time()
+                await asyncio.to_thread(record_minute)
+        except Exception as e:
+            print(f"[CCTV] 백그라운드 작업 오류: {e!r}", flush=True)
+        await asyncio.sleep(15)
+
+
+@asynccontextmanager
+async def lifespan(app):
+    task = asyncio.create_task(background())
+    yield
+    task.cancel()
+
+
 # ---------------------------------------------------------------- 앱
 
-app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
+app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None, lifespan=lifespan)
 
 
 @app.middleware("http")
@@ -367,9 +520,18 @@ _enabled_cams = (0.0, [])  # (조회 시각, rows) — 시청자 수백 명이 3
 @app.get("/api/cameras")
 async def cameras(u=Depends(viewer)):
     global _enabled_cams
+    note_viewer(u["id"])
     if time.time() - _enabled_cams[0] > 1:
         _enabled_cams = (time.time(), q("SELECT * FROM cameras WHERE enabled=1 ORDER BY sort, id"))
-    return {"now": time.time(), "cameras": [cam_status(r) for r in _enabled_cams[1]]}
+    op = operating()
+    cams = [cam_status(r) for r in _enabled_cams[1]]
+    if not op["active"]:
+        for c in cams:  # 운영 시간 밖에는 지난 사진을 보여주지 않는다
+            c.update(ts=None, online=False)
+    out = {"now": time.time(), "cameras": cams, "operating": op}
+    if _notice.get("text"):
+        out["notice"] = _notice
+    return out
 
 
 @app.get("/api/snap/{cam_id}")
@@ -377,7 +539,11 @@ async def snap(cam_id: int, size: str = "full", u=Depends(viewer)):
     s = _snaps.get(cam_id)
     if not s:
         raise HTTPException(404, "영상이 아직 없습니다")
-    img = s["thumb"] if size == "thumb" and s["thumb"] else s["img"]
+    if size == "thumb" and s["thumb"]:
+        img = s["thumb"]
+    else:
+        img = s["img"]
+        note_view(cam_id, u["id"])
     # 주소에 촬영 시각(?t=)이 붙어서 바뀌므로 브라우저 캐시를 써도 된다
     return Response(img, media_type="image/jpeg",
                     headers={"Cache-Control": "private, max-age=300"})
@@ -385,15 +551,23 @@ async def snap(cam_id: int, size: str = "full", u=Depends(viewer)):
 
 # ---- 송출 (카메라 키 인증)
 
+def cam_reply(cam):
+    op = operating()
+    return {"name": cam["name"], "interval": cam["interval_sec"], "rotation": cam["rotation"],
+            "active": op["active"], "message": op["message"]}
+
+
 @app.get("/api/cam/config")
 def cam_config(request: Request):
-    cam = camera_by_key(request)
-    return {"name": cam["name"], "interval": cam["interval_sec"], "rotation": cam["rotation"]}
+    return cam_reply(camera_by_key(request))
 
 
 @app.post("/api/cam/upload")
 async def cam_upload(request: Request):
     cam = camera_by_key(request)
+    reply = cam_reply(cam)
+    if not reply["active"]:
+        return reply  # 운영 시간 밖: 받지 않고 대기하라고 알려준다
     if int(request.headers.get("content-length") or 0) > MAX_UPLOAD:
         raise HTTPException(413, "사진이 너무 큽니다")
     data = await request.body()
@@ -406,9 +580,9 @@ async def cam_upload(request: Request):
     thumb = await run_in_threadpool(make_thumb, data)
     _snaps[cam["id"]] = {
         "img": data, "thumb": thumb, "ts": time.time(), "battery": battery,
-        "charging": request.headers.get("x-charging") == "1",
+        "charging": {"1": True, "0": False}.get(request.headers.get("x-charging", "")),
     }
-    return {"name": cam["name"], "interval": cam["interval_sec"], "rotation": cam["rotation"]}
+    return reply
 
 
 # ---- 관리자: 카메라
@@ -447,7 +621,7 @@ def admin_cameras(a=Depends(admin)):
     for r in q("SELECT * FROM cameras ORDER BY sort, id"):
         s = _snaps.get(r["id"]) or {}
         out.append({**cam_status(r), "enabled": bool(r["enabled"]), "sort": r["sort"],
-                    "rotation": r["rotation"],
+                    "rotation": r["rotation"], "problems": live_problems(r),
                     "battery": s.get("battery"), "charging": s.get("charging")})
     return {"now": time.time(), "cameras": out}
 
@@ -580,7 +754,7 @@ class SettingsIn(BaseModel):
 
 @app.get("/api/admin/settings")
 def admin_get_settings(a=Depends(admin)):
-    return {"force_pw_change": _force_pw_change}
+    return {"force_pw_change": _force_pw_change, "telegram": ops.telegram_enabled()}
 
 
 @app.put("/api/admin/settings")
@@ -589,6 +763,101 @@ def admin_put_settings(body: SettingsIn, a=Depends(admin)):
     _force_pw_change = body.force_pw_change
     set_setting("force_pw_change", "1" if body.force_pw_change else "0")
     return {"ok": True}
+
+
+# ---- 관리자: 운영 시간, 공지
+
+class ScheduleIn(BaseModel):
+    mode: str
+    days: list[int] = []
+    start: str = "17:00"
+    end: str = "20:00"
+
+
+class NoticeIn(BaseModel):
+    text: str = ""
+    level: str = "info"
+
+
+@app.get("/api/admin/operation")
+def admin_get_operation(a=Depends(admin)):
+    return {"schedule": _schedule, "status": operating(), "notice": _notice}
+
+
+@app.put("/api/admin/schedule")
+def admin_put_schedule(body: ScheduleIn, a=Depends(admin)):
+    global _schedule
+    try:
+        sched = ops.validate_schedule(body.model_dump())
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    _schedule = sched
+    set_setting("schedule", json.dumps(sched))
+    days = "".join(ops.DAY_NAMES[d] for d in sched["days"])
+    label = {"always": "항상 운영", "off": "운영 중지",
+             "schedule": f"시간표 {days} {sched['start']}~{sched['end']}"}[sched["mode"]]
+    log_event("admin", f"{a['username']}: 운영 방식 변경 → {label}")
+    return {"schedule": _schedule, "status": operating()}
+
+
+@app.put("/api/admin/notice")
+def admin_put_notice(body: NoticeIn, a=Depends(admin)):
+    global _notice
+    text = body.text.strip()
+    if len(text) > 200:
+        raise HTTPException(400, "공지는 200자 이하입니다")
+    if body.level not in ("info", "warn"):
+        raise HTTPException(400, "공지 종류가 올바르지 않습니다")
+    _notice = {"text": text, "level": body.level, "updated_at": time.time() if text else None}
+    set_setting("notice", json.dumps(_notice))
+    log_event("admin", f"{a['username']}: " + (f"공지 게시 - {text}" if text else "공지 내림"))
+    return _notice
+
+
+# ---- 관리자: 알림, 통계
+
+@app.get("/api/admin/alerts")
+def admin_alerts(a=Depends(admin)):
+    names = {r["id"]: r["name"] for r in q("SELECT id, name FROM cameras")}
+    active = [{"cam_id": cid, "name": names.get(cid, "?"), "code": code, "message": text,
+               "since": _alert_since.get((cid, code))}
+              for cid, probs in _alerts.items() for code, text in probs.items()]
+    events = [dict(r) for r in q("SELECT ts, kind, message FROM events ORDER BY id DESC LIMIT 50")]
+    return {"now": time.time(), "active": active, "events": events}
+
+
+@app.get("/api/admin/stats")
+def admin_stats(a=Depends(admin)):
+    now = time.time()
+    today = ops.kst_day(now)
+    midnight = now - (now + 9 * 3600) % 86400  # 오늘 0시 (한국 시간)
+    series = [[r["ts"], r["viewers"]] for r in
+              q("SELECT ts, viewers FROM stats_minute WHERE ts >= ? ORDER BY ts", (now - 24 * 3600,))]
+    peak = q("SELECT ts, viewers FROM stats_minute WHERE ts >= ? ORDER BY viewers DESC, ts LIMIT 1",
+             (midnight,), one=True)
+    unique = q("SELECT COUNT(*) AS n FROM daily_users WHERE day=?", (today,), one=True)["n"]
+    cam_views = [dict(r) for r in q(
+        "SELECT c.name, COUNT(v.user_id) AS viewers FROM cameras c "
+        "LEFT JOIN cam_views v ON v.cam_id = c.id AND v.day = ? GROUP BY c.id ORDER BY c.sort, c.id",
+        (today,))]
+    uniq_by_day = {r["day"]: r["n"] for r in q(
+        "SELECT day, COUNT(*) AS n FROM daily_users WHERE day >= ? GROUP BY day",
+        (ops.kst_day(now - 6 * 86400),))}
+    peak_by_day = {r["day"]: r["peak"] for r in q(
+        "SELECT date(ts + 32400, 'unixepoch') AS day, MAX(viewers) AS peak FROM stats_minute "
+        "WHERE ts >= ? GROUP BY day", (midnight - 6 * 86400,))}
+    days = [{"day": d, "unique": uniq_by_day.get(d, 0), "peak": peak_by_day.get(d, 0)}
+            for d in (ops.kst_day(now - i * 86400) for i in range(6, -1, -1))]
+    return {
+        "now": now,
+        "viewers_now": current_viewers(),
+        "today": {"unique": unique,
+                  "peak": peak["viewers"] if peak else 0,
+                  "peak_at": peak["ts"] if peak and peak["viewers"] else None},
+        "series": series,
+        "cam_views": cam_views,
+        "days": days,
+    }
 
 
 app.mount("/static", StaticFiles(directory=STATIC), name="static")

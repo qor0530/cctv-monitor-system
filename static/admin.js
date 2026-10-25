@@ -1,4 +1,4 @@
-// 관리자 화면: 카메라, 계정, 설정
+// 관리자 화면: 카메라, 계정, 설정 (운영·통계·알림은 admin-ops.js)
 const $ = id => document.getElementById(id);
 let camList = [];
 let userList = [];
@@ -21,7 +21,9 @@ async function act(fn, okMsg) {
 document.querySelectorAll('nav.tabs button').forEach(b => {
   b.onclick = () => {
     document.querySelectorAll('nav.tabs button').forEach(x => x.setAttribute('aria-selected', x === b));
-    for (const s of ['cams', 'users', 'settings']) $('tab-' + s).hidden = s !== b.dataset.tab;
+    for (const s of ['cams', 'ops', 'stats', 'users', 'settings']) $('tab-' + s).hidden = s !== b.dataset.tab;
+    if (b.dataset.tab === 'ops') loadOps();
+    if (b.dataset.tab === 'stats') loadStats();
     if (b.dataset.tab === 'users') loadUsers();
     if (b.dataset.tab === 'settings') loadSettings();
   };
@@ -39,8 +41,10 @@ function renderCams() {
   const now = Date.now() / 1000 + skew;
   $('camCount').textContent = `(${camList.length})`;
   $('camRows').innerHTML = camList.map(c => {
-    const st = !c.enabled ? '<span class="pill">비활성</span>'
-      : c.online ? '<span class="pill ok">온라인</span>' : '<span class="pill bad">오프라인</span>';
+    const problems = Object.entries(c.problems || {}).filter(([code]) => code !== 'offline')
+      .map(([, text]) => ` <span class="pill warn">${esc(text)}</span>`).join('');
+    const st = (!c.enabled ? '<span class="pill">비활성</span>'
+      : c.online ? '<span class="pill ok">온라인</span>' : '<span class="pill bad">오프라인</span>') + problems;
     const bat = c.battery == null ? '-'
       : `${Math.round(c.battery * 100)}%` + (c.charging ? ' ⚡' : ' <span class="pill warn">충전 안 됨</span>');
     return `<tr>
@@ -221,6 +225,9 @@ $('bulkGo').onclick = async () => {
 async function loadSettings() {
   const d = await api('/api/admin/settings');
   $('forcePw').checked = d.force_pw_change;
+  $('tgSettings').innerHTML = d.telegram
+    ? '✅ 켜져 있습니다. 카메라 이상과 운영 시작·종료를 텔레그램으로 보냅니다.'
+    : '꺼져 있습니다. 서버의 <code>/etc/cctv.env</code>에 <code>CCTV_TELEGRAM_TOKEN</code>과 <code>CCTV_TELEGRAM_CHAT_ID</code>를 넣고 재시작하면 켜집니다. (README 참고)';
 }
 $('forcePw').addEventListener('change', e => act(
   () => api('/api/admin/settings', { method: 'PUT', body: { force_pw_change: e.target.checked } }),

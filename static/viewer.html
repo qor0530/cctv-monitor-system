@@ -14,6 +14,14 @@
   header h1 { font-size: 17px; margin: 0; margin-right: auto; display: flex; align-items: center; gap: 8px; }
   header .who { color: var(--muted); font-size: 14px; }
 
+  #banners:empty { display: none; }
+  #banners { display: grid; gap: 1px; }
+  .banner { padding: 10px 16px; font-size: 15px; display: flex; gap: 8px; align-items: baseline; }
+  .banner strong { white-space: nowrap; }
+  .banner.info { background: #12263f; color: #cfe2ff; }
+  .banner.warn { background: #3d2c06; color: #ffe2a0; }
+  .banner.off { background: var(--surface-2); color: var(--muted); }
+
   #grid {
     flex: 1; display: grid; gap: 8px; padding: 8px;
     grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -80,6 +88,7 @@
   <button class="btn sm" onclick="logout()">로그아웃</button>
 </header>
 
+<div id="banners" aria-live="polite"></div>
 <main id="grid"></main>
 
 <div id="ov" hidden>
@@ -109,6 +118,6 @@
 </div>
 
 <script src="/static/common.js"></script>
-<script src="/static/viewer.js?v=2"></script>
+<script src="/static/viewer.js?v=3"></script>
 </body>
 </html>

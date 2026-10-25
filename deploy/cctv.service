@@ -11,6 +11,8 @@ Environment=CCTV_DB=/var/lib/cctv/cctv.db
 Environment=CCTV_SECURE_COOKIE=1
 Environment=PYTHONDONTWRITEBYTECODE=1
 Environment=PYTHONUNBUFFERED=1
+# 텔레그램 알림 등 선택 설정 (없어도 됨)
+EnvironmentFile=-/etc/cctv.env
 # 스냅샷을 메모리에 두므로 워커는 반드시 1개. keep-alive를 업로드 주기보다 길게 둬서 끊긴 연결 재사용 오류를 막는다
 ExecStart=/opt/cctv/.venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000 --proxy-headers --workers 1 --timeout-keep-alive 75 --no-access-log
 Restart=always
