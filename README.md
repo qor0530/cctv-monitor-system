@@ -36,8 +36,14 @@ git clone https://github.com/qor0530/cctv-monitor-system.git
 cd cctv-monitor-system
 ./run.sh
 ```
-- Python 3.10 이상이 필요하다. 맥 기본 `python3`가 3.9 이하면 `brew install python@3.12` (Homebrew: https://brew.sh)
+- Python 3.10 이상이 필요하다. 없으면 `run.sh`가 `uv`로 Python까지 받아서 만든다 (아래 "새 맥" 참고)
 - 비공개 저장소라 처음 clone할 때 GitHub 로그인이 필요하다: `brew install gh` → `gh auth login`
+
+**새 맥 (Homebrew·git·관리자 권한 없이)**
+1. 브라우저로 GitHub에 로그인 → 저장소 페이지 → **Code → Download ZIP** → 더블클릭으로 압축 풀기
+2. 터미널에서 uv 설치 (내 계정 폴더에만 설치됨): `curl -LsSf https://astral.sh/uv/install.sh | sh`
+3. 터미널을 닫았다 다시 열고, 압축 푼 폴더로 이동: `cd ~/Downloads/cctv-monitor-system-main`
+4. `bash run.sh` → 처음에는 uv가 Python 3.12를 받아 가상환경을 만든다
 
 **Windows (PowerShell)**
 ```powershell

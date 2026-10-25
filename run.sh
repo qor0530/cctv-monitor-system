@@ -20,13 +20,21 @@ find_python() {
 if [ -x .venv/bin/python ]; then PY=.venv/bin/python
 elif [ -x .venv/Scripts/python.exe ]; then PY=.venv/Scripts/python.exe
 else
-  BASE="$(find_python)" || {
-    echo "Python 3.10 이상이 필요합니다."
-    echo "  맥: brew install python@3.12   (Homebrew가 없으면 https://brew.sh)"
-    exit 1
-  }
-  echo "== 가상환경 만드는 중 ($("$BASE" --version))"
-  "$BASE" -m venv .venv
+  if BASE="$(find_python)"; then
+    echo "== 가상환경 만드는 중 ($("$BASE" --version))"
+    "$BASE" -m venv .venv
+  else
+    # 맞는 Python이 없으면 uv로 Python까지 받아서 만든다 (관리자 권한·Homebrew 불필요)
+    UV="$(command -v uv || true)"
+    [ -z "$UV" ] && [ -x "$HOME/.local/bin/uv" ] && UV="$HOME/.local/bin/uv"
+    if [ -z "$UV" ]; then
+      echo "Python 3.10 이상이 필요합니다. 아래 한 줄로 uv를 설치한 뒤 다시 실행하세요 (관리자 권한 불필요):"
+      echo "  curl -LsSf https://astral.sh/uv/install.sh | sh"
+      exit 1
+    fi
+    echo "== uv로 Python 3.12와 가상환경 만드는 중 (처음 한 번)"
+    "$UV" venv --seed --python 3.12 .venv
+  fi
   if [ -x .venv/bin/python ]; then PY=.venv/bin/python; else PY=.venv/Scripts/python.exe; fi
 fi
 
