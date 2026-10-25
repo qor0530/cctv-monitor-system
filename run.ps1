@@ -24,5 +24,5 @@ if ($old -ne $new) {
 }
 
 Write-Host "== 서버 시작: http://localhost:$Port   (끄려면 Ctrl+C)"
-Write-Host "   휴대폰 시험용 HTTPS 주소: 다른 터미널에서  cloudflared tunnel --url http://localhost:$Port"
+Write-Host "   휴대폰 시험용 HTTPS 주소: 다른 터미널에서  cloudflared tunnel --url http://127.0.0.1:$Port"
 & $py -m uvicorn app.main:app --host 127.0.0.1 --port $Port

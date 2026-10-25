@@ -57,7 +57,7 @@ cd cctv
 
 - 계정·카메라 데이터(`cctv.db`)는 **컴퓨터마다 따로** 생긴다. 다른 PC에서 쓰던 계정은 따라오지 않는다
 - 휴대폰 카메라는 HTTPS에서만 켜지므로, 실폰 시험은 다른 터미널에서 임시 터널을 연다:
-  `cloudflared tunnel --url http://localhost:8000` (맥 설치: `brew install cloudflared`, 윈도우: `winget install Cloudflare.cloudflared`)
+  `cloudflared tunnel --url http://127.0.0.1:8000` (맥 설치: `brew install cloudflared`, 윈도우: `winget install Cloudflare.cloudflared`)
 
 | 환경변수 | 기본값 | 설명 |
 |---|---|---|

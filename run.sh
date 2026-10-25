@@ -49,5 +49,5 @@ if [ "$(cat "$STAMP" 2>/dev/null || true)" != "$NEW" ]; then
 fi
 
 echo "== 서버 시작: http://localhost:$PORT   (끄려면 Ctrl+C)"
-echo "   휴대폰 시험용 HTTPS 주소: 다른 터미널에서  cloudflared tunnel --url http://localhost:$PORT"
+echo "   휴대폰 시험용 HTTPS 주소: 다른 터미널에서  cloudflared tunnel --url http://127.0.0.1:$PORT"
 exec "$PY" -m uvicorn app.main:app --host 127.0.0.1 --port "$PORT"
